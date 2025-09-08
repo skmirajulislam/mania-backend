@@ -149,7 +149,7 @@ app.use(globalRateLimit);
 app.use(cors({
     origin: [
         'http://localhost:5173',
-        'https://hotel-mania-front.vercel.app',
+        'https://hotel-mania-one.vercel.app',
         'http://localhost:3000'
     ],
     credentials: true,
