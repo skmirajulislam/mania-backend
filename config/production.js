@@ -12,6 +12,10 @@ const rateLimitConfigs = {
         },
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => {
+            // Use X-Forwarded-For header if available, otherwise use connection IP
+            return req.ip || req.connection.remoteAddress || 'unknown';
+        },
         handler: (req, res) => {
             res.status(429).json({
                 error: 'Rate limit exceeded',
@@ -32,6 +36,10 @@ const rateLimitConfigs = {
         },
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => {
+            // Use X-Forwarded-For header if available, otherwise use connection IP
+            return req.ip || req.connection.remoteAddress || 'unknown';
+        },
         handler: (req, res) => {
             res.status(429).json({
                 error: 'API rate limit exceeded',
@@ -52,6 +60,10 @@ const rateLimitConfigs = {
         },
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => {
+            // Use X-Forwarded-For header if available, otherwise use connection IP
+            return req.ip || req.connection.remoteAddress || 'unknown';
+        },
         handler: (req, res) => {
             res.status(429).json({
                 error: 'Authentication rate limit exceeded',
@@ -72,6 +84,10 @@ const rateLimitConfigs = {
         },
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => {
+            // Use X-Forwarded-For header if available, otherwise use connection IP
+            return req.ip || req.connection.remoteAddress || 'unknown';
+        },
         handler: (req, res) => {
             res.status(429).json({
                 error: 'Upload rate limit exceeded',
@@ -92,6 +108,10 @@ const rateLimitConfigs = {
         },
         standardHeaders: true,
         legacyHeaders: false,
+        keyGenerator: (req) => {
+            // Use X-Forwarded-For header if available, otherwise use connection IP
+            return req.ip || req.connection.remoteAddress || 'unknown';
+        },
         handler: (req, res) => {
             res.status(429).json({
                 error: 'Search rate limit exceeded',

@@ -31,7 +31,8 @@ console.log('Environment loaded:', {
 const app = express();
 
 // Configure trust proxy for Railway and other proxy environments
-app.set('trust proxy', true);
+// Only trust the first proxy (Railway's proxy)
+app.set('trust proxy', 1);
 
 // Graceful shutdown handling
 let server;
@@ -113,7 +114,11 @@ const globalRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV !== 'production'
+    skip: (req) => process.env.NODE_ENV !== 'production',
+    keyGenerator: (req) => {
+        // Use X-Forwarded-For header if available, otherwise use connection IP
+        return req.ip || req.connection.remoteAddress || 'unknown';
+    }
 });
 
 // API-specific rate limiting
@@ -126,7 +131,11 @@ const apiRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV !== 'production'
+    skip: (req) => process.env.NODE_ENV !== 'production',
+    keyGenerator: (req) => {
+        // Use X-Forwarded-For header if available, otherwise use connection IP
+        return req.ip || req.connection.remoteAddress || 'unknown';
+    }
 });
 
 // Auth-specific rate limiting (stricter)
@@ -139,7 +148,11 @@ const authRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV !== 'production'
+    skip: (req) => process.env.NODE_ENV !== 'production',
+    keyGenerator: (req) => {
+        // Use X-Forwarded-For header if available, otherwise use connection IP
+        return req.ip || req.connection.remoteAddress || 'unknown';
+    }
 });
 
 // Apply global rate limiting
