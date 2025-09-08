@@ -54,11 +54,11 @@ const gracefulShutdown = (signal) => {
             }
         });
 
-        // Force close after 10 seconds
+        // Force close after 30 seconds (increased for Railway)
         setTimeout(() => {
             console.log('Could not close connections in time, forcefully shutting down');
             process.exit(1);
-        }, 10000);
+        }, 30000);
     } else {
         process.exit(0);
     }
@@ -67,16 +67,17 @@ const gracefulShutdown = (signal) => {
 // Handle shutdown signals
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGQUIT', () => gracefulShutdown('SIGQUIT'));
 
-// Basic error handling
+// Enhanced error handling for production
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
-    process.exit(1);
+    gracefulShutdown('uncaughtException');
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1);
+    gracefulShutdown('unhandledRejection');
 });
 
 // Production security middleware
@@ -370,12 +371,36 @@ async function initializeApp() {
 
         console.log('Application initialization completed');
 
+        // Enhanced health check endpoint
+        app.get('/health', (req, res) => {
+            const healthcheck = {
+                uptime: process.uptime(),
+                message: 'OK',
+                timestamp: new Date().toISOString(),
+                environment: process.env.NODE_ENV || 'development',
+                database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+                memory: process.memoryUsage(),
+                version: process.version
+            };
+            res.status(200).json(healthcheck);
+        });
+
+        // Keep-alive ping endpoint for Railway
+        app.get('/ping', (req, res) => {
+            res.status(200).json({
+                status: 'alive',
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime()
+            });
+        });
+
         // Start server for all environments
         const PORT = process.env.PORT || 5000;
         server = app.listen(PORT, '0.0.0.0', () => {
             console.log(`✅ Server running on port ${PORT}`);
             console.log(`🚀 Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`🔗 Health check available at: http://localhost:${PORT}/health`);
+            console.log(`🔗 Keep-alive ping available at: http://localhost:${PORT}/ping`);
         });
 
         // Handle server errors
@@ -383,6 +408,27 @@ async function initializeApp() {
             console.error('Server error:', err);
             process.exit(1);
         });
+
+        // Memory monitoring for Railway
+        if (process.env.NODE_ENV === 'production') {
+            setInterval(() => {
+                const used = process.memoryUsage();
+                const memoryMB = {
+                    rss: Math.round(used.rss / 1024 / 1024 * 100) / 100,
+                    heapTotal: Math.round(used.heapTotal / 1024 / 1024 * 100) / 100,
+                    heapUsed: Math.round(used.heapUsed / 1024 / 1024 * 100) / 100,
+                    external: Math.round(used.external / 1024 / 1024 * 100) / 100
+                };
+
+                // Log memory usage every 10 minutes
+                console.log(`Memory usage: RSS ${memoryMB.rss}MB, Heap Used ${memoryMB.heapUsed}MB/${memoryMB.heapTotal}MB`);
+
+                // Warning if memory usage is high (over 400MB heap)
+                if (memoryMB.heapUsed > 400) {
+                    console.warn('⚠️ High memory usage detected');
+                }
+            }, 600000); // 10 minutes
+        }
 
     } catch (error) {
         console.error('Error during app initialization:', error);
