@@ -30,21 +30,52 @@ console.log('Environment loaded:', {
 // Initialize express
 const app = express();
 
-// Configure trust proxy for Vercel and other proxy environments
-// This is essential for rate limiting and getting real client IPs
-if (process.env.NODE_ENV === 'production') {
-    app.set('trust proxy', true);
-} else {
-    app.set('trust proxy', 1);
-}
+// Configure trust proxy for Railway and other proxy environments
+app.set('trust proxy', true);
 
-// Basic error handling for serverless
+// Graceful shutdown handling
+let server;
+const gracefulShutdown = (signal) => {
+    console.log(`Received ${signal}. Starting graceful shutdown...`);
+
+    if (server) {
+        server.close(() => {
+            console.log('HTTP server closed.');
+
+            // Close database connection
+            if (mongoose.connection.readyState === 1) {
+                mongoose.connection.close(() => {
+                    console.log('MongoDB connection closed.');
+                    process.exit(0);
+                });
+            } else {
+                process.exit(0);
+            }
+        });
+
+        // Force close after 10 seconds
+        setTimeout(() => {
+            console.log('Could not close connections in time, forcefully shutting down');
+            process.exit(1);
+        }, 10000);
+    } else {
+        process.exit(0);
+    }
+};
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Basic error handling
 process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
+    process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
 });
 
 // Production security middleware
@@ -72,66 +103,49 @@ if (process.env.NODE_ENV === 'production') {
     app.use(morgan('dev'));
 }
 
-// Global rate limiting for production with simplified configuration
+// Global rate limiting
 const globalRateLimit = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // Limit each IP to 1000 requests per windowMs
+    max: 1000,
     message: {
         error: 'Too many requests from this IP, please try again later.',
-        retryAfter: 15 * 60 // 15 minutes in seconds
+        retryAfter: 15 * 60
     },
     standardHeaders: true,
     legacyHeaders: false,
-    // Skip rate limiting in development
-    skip: (req) => process.env.NODE_ENV !== 'production',
-    // Disable trust proxy validation for Vercel
-    validate: {
-        trustProxy: false,
-        xForwardedForHeader: false,
-        forwardedHeader: false
-    }
+    skip: (req) => process.env.NODE_ENV !== 'production'
 });
 
 // API-specific rate limiting
 const apiRateLimit = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 500, // Limit each IP to 500 API requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 500,
     message: {
         error: 'Too many API requests from this IP, please try again later.',
         retryAfter: 15 * 60
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV !== 'production',
-    validate: {
-        trustProxy: false,
-        xForwardedForHeader: false,
-        forwardedHeader: false
-    }
+    skip: (req) => process.env.NODE_ENV !== 'production'
 });
 
 // Auth-specific rate limiting (stricter)
 const authRateLimit = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Limit each IP to 10 auth requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 10,
     message: {
         error: 'Too many authentication attempts from this IP, please try again later.',
         retryAfter: 15 * 60
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => process.env.NODE_ENV !== 'production',
-    validate: {
-        trustProxy: false,
-        xForwardedForHeader: false,
-        forwardedHeader: false
-    }
+    skip: (req) => process.env.NODE_ENV !== 'production'
 });
 
 // Apply global rate limiting
 app.use(globalRateLimit);
 
-// Middleware - CORS configuration
+// CORS configuration
 app.use(cors({
     origin: [
         'http://localhost:5173',
@@ -147,11 +161,22 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check route
+// Health check route (must be early)
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development',
+        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    });
+});
+
+// Root route
 app.get('/', (req, res) => {
     res.status(200).json({
         status: 'success',
-        message: 'Server is working and healthy',
+        message: 'Hotel Management System API is running',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development'
     });
@@ -160,25 +185,21 @@ app.get('/', (req, res) => {
 // Database connection middleware for API routes
 const ensureDbConnection = async (req, res, next) => {
     try {
-        // Check if connection is ready
         if (mongoose.connection.readyState === 1) {
             return next();
         }
 
-        // If not connected, try to reconnect
         if (mongoose.connection.readyState === 0) {
             const connectDB = require('./config/db');
             await connectDB();
             return next();
         }
 
-        // Connection is in progress, wait a bit
         if (mongoose.connection.readyState === 2) {
             await new Promise(resolve => setTimeout(resolve, 1000));
             return next();
         }
 
-        // Connection failed
         return res.status(503).json({
             error: 'Database connection not available',
             timestamp: new Date().toISOString()
@@ -193,7 +214,7 @@ const ensureDbConnection = async (req, res, next) => {
     }
 };
 
-// Test route to check if basic routing works
+// Test route
 app.get('/api/test', (req, res) => {
     res.status(200).json({
         message: 'API routing is working',
@@ -201,36 +222,17 @@ app.get('/api/test', (req, res) => {
     });
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-    res.status(200).json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV,
-        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-    });
-});
-
 // Handle favicon.ico requests
 app.get('/favicon.ico', (req, res) => {
-    res.status(204).end(); // No content response
+    res.status(204).end();
 });
 
-// Handle root route
-app.get('/', (req, res) => {
-    res.status(200).json({
-        message: 'Hotel Management System API is running',
-        timestamp: new Date().toISOString(),
-        version: '1.0.0'
-    });
-});
-
-// Load routes conditionally to avoid crashes
+// Load routes conditionally
 async function initializeApp() {
     try {
         console.log('Initializing application...');
 
-        // Load routes first (they can work without DB for some endpoints)
+        // Load routes
         const routesToLoad = [
             { name: 'authRoutes', path: './routes/authRoutes', endpoint: '/api/auth' },
             { name: 'roomRoutes', path: './routes/roomRoutes', endpoint: '/api/rooms' },
@@ -253,13 +255,10 @@ async function initializeApp() {
                 const routeModule = require(route.path);
 
                 if (route.name === 'utilRoutes') {
-                    // Utils don't always need DB
                     app.use(route.endpoint, routeModule);
                 } else if (route.name === 'authRoutes') {
-                    // Apply stricter rate limiting to auth routes
                     app.use(route.endpoint, authRateLimit, ensureDbConnection, routeModule);
                 } else {
-                    // Apply API rate limiting to other routes
                     app.use(route.endpoint, apiRateLimit, ensureDbConnection, routeModule);
                 }
 
@@ -267,7 +266,6 @@ async function initializeApp() {
             } catch (error) {
                 console.error(`❌ Error loading ${route.name}:`, error.message);
 
-                // Create a fallback route for this specific endpoint
                 app.use(route.endpoint, (req, res) => {
                     res.status(503).json({
                         error: `${route.name} temporarily unavailable`,
@@ -280,7 +278,7 @@ async function initializeApp() {
 
         console.log('All routes processing completed');
 
-        // Try to connect to MongoDB (but don't fail if it doesn't work)
+        // Try to connect to MongoDB
         try {
             const connectDB = require('./config/db');
             console.log('Connecting to database...');
@@ -290,20 +288,19 @@ async function initializeApp() {
             console.error('Database connection failed, but continuing with routes:', dbError.message);
         }
 
-        console.log('Application initialization completed');
-
-        // Add health endpoint after all routes are loaded
+        // API health endpoint
         app.get('/api/health', (req, res) => {
             res.status(200).json({
                 status: 'healthy',
                 timestamp: new Date().toISOString(),
                 uptime: process.uptime(),
                 memory: process.memoryUsage(),
-                environment: process.env.NODE_ENV || 'development'
+                environment: process.env.NODE_ENV || 'development',
+                database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
             });
         });
 
-        // 404 handler for non-API routes (must be after all routes)
+        // 404 handler (must be after all routes)
         app.use((req, res) => {
             res.status(404).json({
                 error: 'Route not found',
@@ -317,7 +314,6 @@ async function initializeApp() {
         app.use((err, req, res, next) => {
             console.error('Global error handler:', err.stack);
 
-            // Mongoose validation error
             if (err.name === 'ValidationError') {
                 const errors = Object.values(err.errors).map(e => e.message);
                 return res.status(400).json({
@@ -327,7 +323,6 @@ async function initializeApp() {
                 });
             }
 
-            // MongoDB duplicate key error
             if (err.code === 11000) {
                 const field = Object.keys(err.keyValue)[0];
                 return res.status(400).json({
@@ -337,7 +332,6 @@ async function initializeApp() {
                 });
             }
 
-            // JWT errors
             if (err.name === 'JsonWebTokenError') {
                 return res.status(401).json({
                     error: 'Invalid token',
@@ -352,7 +346,6 @@ async function initializeApp() {
                 });
             }
 
-            // Default server error
             res.status(err.status || 500).json({
                 error: process.env.NODE_ENV === 'production'
                     ? 'Internal server error'
@@ -362,31 +355,32 @@ async function initializeApp() {
             });
         });
 
+        console.log('Application initialization completed');
+
+        // Start server for all environments
+        const PORT = process.env.PORT || 5000;
+        server = app.listen(PORT, '0.0.0.0', () => {
+            console.log(`✅ Server running on port ${PORT}`);
+            console.log(`🚀 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`🔗 Health check available at: http://localhost:${PORT}/health`);
+        });
+
+        // Handle server errors
+        server.on('error', (err) => {
+            console.error('Server error:', err);
+            process.exit(1);
+        });
+
     } catch (error) {
         console.error('Error during app initialization:', error);
-        // Don't throw the error - let the app start anyway
-
-        // Fallback health route when everything fails
-        app.get('/api/health', (req, res) => {
-            res.status(503).json({
-                error: 'Service temporarily unavailable',
-                message: 'App initialization failed',
-                timestamp: new Date().toISOString(),
-                reason: error.message
-            });
-        });
+        process.exit(1);
     }
 }
 
 // Initialize the app
-initializeApp();
-
-// Start server (only in development)
-if (process.env.NODE_ENV !== 'production') {
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
-    });
-}
+initializeApp().catch(error => {
+    console.error('Failed to initialize app:', error);
+    process.exit(1);
+});
 
 module.exports = app;
