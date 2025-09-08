@@ -1,0 +1,63 @@
+{
+  "name": "grand-hotel-backend",
+  "version": "1.0.0",
+  "description": "Backend API server for Grand Hotel application",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "echo 'No build step required'",
+    "seed": "node seed.js",
+    "migrate": "node scripts/migrate-data.js",
+    "dev:client": "cd ../frontend && npm run dev",
+    "dev:all": "concurrently \"npm run dev\" \"npm run dev:client\"",
+    "prod:start": "NODE_ENV=production pm2 start ecosystem.config.js --env production",
+    "prod:stop": "pm2 stop grand-hotel-api",
+    "prod:restart": "pm2 restart grand-hotel-api",
+    "prod:reload": "pm2 reload grand-hotel-api",
+    "prod:logs": "pm2 logs grand-hotel-api",
+    "prod:monitor": "pm2 monit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:integration": "node scripts/integration-test.js",
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix",
+    "security:audit": "npm audit",
+    "security:fix": "npm audit fix",
+    "db:backup": "node scripts/backup-db.js",
+    "db:restore": "node scripts/restore-db.js",
+    "health": "node scripts/health-check.js",
+    "cleanup": "node scripts/cleanup-logs.js"
+  },
+  "keywords": [
+    "hotel",
+    "api",
+    "booking"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^2.7.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "debug": "^4.4.1",
+    "dotenv": "^17.2.2",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.18.0",
+    "mongoose-paginate-v2": "^1.9.1",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "stripe": "^18.5.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.10"
+  }
+}
